@@ -15,8 +15,7 @@ public static class GitHubRepositoriesReleasesUtilRegistrar
     /// </summary>
     public static IServiceCollection AddGitHubRepositoriesReleasesUtilAsSingleton(this IServiceCollection services)
     {
-        services.AddGitHubRepositoriesTagsUtilAsSingleton()
-                .TryAddSingleton<IGitHubRepositoriesReleasesUtil, GitHubRepositoriesReleasesUtil>();
+        services.AddGitHubRepositoriesTagsUtilAsSingleton().TryAddSingleton<IGitHubRepositoriesReleasesUtil, GitHubRepositoriesReleasesUtil>();
 
         return services;
     }
@@ -26,8 +25,7 @@ public static class GitHubRepositoriesReleasesUtilRegistrar
     /// </summary>
     public static IServiceCollection AddGitHubRepositoriesReleasesUtilAsScoped(this IServiceCollection services)
     {
-        services.AddGitHubRepositoriesTagsUtilAsScoped()
-                .TryAddScoped<IGitHubRepositoriesReleasesUtil, GitHubRepositoriesReleasesUtil>();
+        services.AddGitHubRepositoriesTagsUtilAsScoped().TryAddScoped<IGitHubRepositoriesReleasesUtil, GitHubRepositoriesReleasesUtil>();
 
         return services;
     }

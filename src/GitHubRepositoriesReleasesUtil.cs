@@ -1,31 +1,32 @@
 using Microsoft.Extensions.Logging;
-using Octokit;
-using Soenneker.GitHub.Repositories.Releases.Abstract;
-using System.IO;
-using System.Threading.Tasks;
-using System;
-using System.Linq;
-using Soenneker.GitHub.Client.Abstract;
-using System.Threading;
-using Soenneker.Extensions.String;
-using Soenneker.Extensions.ValueTask;
 using Soenneker.Extensions.Task;
+using Soenneker.Extensions.ValueTask;
+using Soenneker.GitHub.ClientUtil.Abstract;
+using Soenneker.GitHub.OpenApiClient.Models;
+using Soenneker.GitHub.OpenApiClient.Repos.Item.Item.Releases;
+using Soenneker.GitHub.Repositories.Releases.Abstract;
 using Soenneker.GitHub.Repositories.Tags.Abstract;
+using System;
 using System.Collections.Generic;
+using System.IO;
+using System.Linq;
+using System.Threading;
+using System.Threading.Tasks;
+using Soenneker.GitHub.OpenApiClient;
 
 namespace Soenneker.GitHub.Repositories.Releases;
 
-/// <inheritdoc cref="IGitHubRepositoriesReleasesUtil"/>
-public class GitHubRepositoriesReleasesUtil : IGitHubRepositoriesReleasesUtil
+///<inheritdoc cref="IGitHubRepositoriesReleasesUtil"/>
+public sealed class GitHubRepositoriesReleasesUtil : IGitHubRepositoriesReleasesUtil
 {
-    private readonly IGitHubClientUtil _gitHubClientUtil;
+    private readonly IGitHubOpenApiClientUtil _gitHubOpenApiClientUtil;
     private readonly IGitHubRepositoriesTagsUtil _tagsUtil;
     private readonly ILogger<GitHubRepositoriesReleasesUtil> _logger;
 
-    public GitHubRepositoriesReleasesUtil(ILogger<GitHubRepositoriesReleasesUtil> logger, IGitHubClientUtil gitHubClientUtil, IGitHubRepositoriesTagsUtil tagsUtil)
+    public GitHubRepositoriesReleasesUtil(ILogger<GitHubRepositoriesReleasesUtil> logger, IGitHubOpenApiClientUtil gitHubOpenApiClientUtil, IGitHubRepositoriesTagsUtil tagsUtil)
     {
         _logger = logger;
-        _gitHubClientUtil = gitHubClientUtil;
+        _gitHubOpenApiClientUtil = gitHubOpenApiClientUtil;
         _tagsUtil = tagsUtil;
     }
 
@@ -34,7 +35,6 @@ public class GitHubRepositoriesReleasesUtil : IGitHubRepositoriesReleasesUtil
     {
         try
         {
-            // Check if the tag already exists
             bool tagExists = await _tagsUtil.DoesTagExist(owner, repo, tagName, cancellationToken).NoSync();
 
             if (!tagExists)
@@ -47,21 +47,20 @@ public class GitHubRepositoriesReleasesUtil : IGitHubRepositoriesReleasesUtil
                 _logger.LogInformation("Tag '{TagName}' already exists. Skipping tag creation.", tagName);
             }
 
-            // Create the release
-            var newRelease = new NewRelease(tagName)
+            GitHubOpenApiClient client = await _gitHubOpenApiClientUtil.Get(cancellationToken).NoSync();
+
+            var releaseRequest = new ReleasesPostRequestBody
             {
+                TagName = tagName,
                 Name = releaseName,
                 Body = releaseBody,
                 Draft = isDraft,
                 Prerelease = isPrerelease
             };
 
-            GitHubClient client = await _gitHubClientUtil.Get(cancellationToken).NoSync();
-
-            Release? release = await client.Repository.Release.Create(owner, repo, newRelease).NoSync();
+            Release? release = await client.Repos[owner][repo].Releases.PostAsync(releaseRequest, cancellationToken: cancellationToken).NoSync();
             _logger.LogInformation("Release '{ReleaseName}' created successfully.", release.Name);
 
-            // Upload the executable as a release asset
             await UploadAsset(release, filePath, cancellationToken).NoSync();
             _logger.LogInformation("Executable '{FileName}' uploaded successfully.", Path.GetFileName(filePath));
         }
@@ -74,16 +73,10 @@ public class GitHubRepositoriesReleasesUtil : IGitHubRepositoriesReleasesUtil
 
     public async ValueTask<ReleaseAsset?> UploadAsset(Release release, string filePath, CancellationToken cancellationToken = default)
     {
-        GitHubClient client = await _gitHubClientUtil.Get(cancellationToken).NoSync();
+        GitHubOpenApiClient client = await _gitHubOpenApiClientUtil.Get(cancellationToken).NoSync();
 
-        var assetUpload = new ReleaseAssetUpload
-        {
-            FileName = Path.GetFileName(filePath),
-            ContentType = GetMimeType(filePath),
-            RawData = File.OpenRead(filePath)
-        };
-
-        ReleaseAsset? asset = await client.Repository.Release.UploadAsset(release, assetUpload, cancellationToken).NoSync();
+        await using FileStream fileStream = File.OpenRead(filePath);
+        ReleaseAsset? asset = await client.Repos[release.Author.Login][release.Name].Releases[release.Id.Value].Assets.PostAsync(fileStream, cancellationToken: cancellationToken).NoSync();
 
         return asset;
     }
@@ -92,19 +85,18 @@ public class GitHubRepositoriesReleasesUtil : IGitHubRepositoriesReleasesUtil
     {
         try
         {
-            GitHubClient client = await _gitHubClientUtil.Get(cancellationToken).NoSync();
+            GitHubOpenApiClient client = await _gitHubOpenApiClientUtil.Get(cancellationToken).NoSync();
 
             Release? release = await Get(owner, repo, tagName, cancellationToken).NoSync();
 
             if (release == null)
                 return;
 
-            await client.Repository.Release.Delete(owner, repo, release.Id).NoSync();
+            await client.Repos[owner][repo].Releases[release.Id.Value].DeleteAsync(cancellationToken: cancellationToken).NoSync();
             _logger.LogInformation("Release with tag '{TagName}' deleted successfully.", tagName);
 
             if (deleteTag)
             {
-                // Optional: Delete the tag associated with the release
                 bool tagExists = await _tagsUtil.DoesTagExist(owner, repo, tagName, cancellationToken).NoSync();
 
                 if (tagExists)
@@ -141,10 +133,9 @@ public class GitHubRepositoriesReleasesUtil : IGitHubRepositoriesReleasesUtil
     {
         try
         {
-            GitHubClient client = await _gitHubClientUtil.Get(cancellationToken).NoSync();
+            GitHubOpenApiClient client = await _gitHubOpenApiClientUtil.Get(cancellationToken).NoSync();
 
-            // Fetch all releases from the repository
-            IReadOnlyList<Release>? releases = await client.Repository.Release.GetAll(owner, repo).NoSync();
+            List<Release>? releases = await client.Repos[owner][repo].Releases.GetAsync(cancellationToken: cancellationToken).NoSync();
 
             _logger.LogInformation("Successfully retrieved {Count} releases for repository '{Repo}'.", releases.Count, repo);
 
@@ -155,22 +146,5 @@ public class GitHubRepositoriesReleasesUtil : IGitHubRepositoriesReleasesUtil
             _logger.LogError(ex, "An error occurred while retrieving releases for repository '{Repo}': {Message}", repo, ex.Message);
             throw;
         }
-    }
-
-    /// <summary>
-    /// Determines the MIME type based on the file extension.
-    /// </summary>
-    private static string GetMimeType(string filePath)
-    {
-        // will need more
-        string extension = Path.GetExtension(filePath).ToLowerInvariantFast();
-        return extension switch
-        {
-            ".exe" => "application/vnd.microsoft.portable-executable",
-            ".zip" => "application/zip",
-            ".tar" => "application/x-tar",
-            ".gz" => "application/gzip",
-            _ => "application/octet-stream",
-        };
     }
 }

@@ -13,6 +13,7 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using Soenneker.GitHub.OpenApiClient;
+using Soenneker.Extensions.String;
 
 namespace Soenneker.GitHub.Repositories.Releases;
 
@@ -75,6 +76,21 @@ public sealed class GitHubRepositoriesReleasesUtil : IGitHubRepositoriesReleases
     public async ValueTask<ReleaseAsset?> UploadAsset(string owner, string repo, int releaseId, string filePath, CancellationToken cancellationToken = default)
     {
         GitHubOpenApiClient client = await _gitHubOpenApiClientUtil.Get(cancellationToken).NoSync();
+
+        if (owner.IsNullOrWhiteSpace())
+            throw new ArgumentException("Owner cannot be null or empty.", nameof(owner));
+
+        if (repo.IsNullOrWhiteSpace())
+            throw new ArgumentException("Repo cannot be null or empty.", nameof(repo));
+
+        if (releaseId <= 0)
+            throw new ArgumentOutOfRangeException(nameof(releaseId), "Release ID must be positive.");
+
+        if (filePath.IsNullOrWhiteSpace())
+            throw new ArgumentException("File path cannot be null or empty.", nameof(filePath));
+
+        if (!File.Exists(filePath))
+            throw new FileNotFoundException("Upload file not found.", filePath);
 
         await using FileStream fileStream = File.OpenRead(filePath);
         return await client.Repos[owner][repo].Releases[releaseId].Assets.PostAsync(fileStream, cancellationToken: cancellationToken).NoSync();

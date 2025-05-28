@@ -27,11 +27,13 @@ public interface IGitHubRepositoriesReleasesUtil
     /// <summary>
     /// Uploads an asset file to an existing release.
     /// </summary>
-    /// <param name="release">The release to which the asset will be uploaded.</param>
+    /// <param name="releaseId"></param>
     /// <param name="filePath">The local file path of the asset.</param>
     /// <param name="cancellationToken">A cancellation token.</param>
+    /// <param name="owner"></param>
+    /// <param name="repo"></param>
     /// <returns>The uploaded <see cref="ReleaseAsset"/> if successful; otherwise, <c>null</c>.</returns>
-    ValueTask<ReleaseAsset?> UploadAsset(Release release, string filePath, CancellationToken cancellationToken = default);
+    ValueTask<ReleaseAsset?> UploadAsset(string owner, string repo, int releaseId, string filePath, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Deletes a release from a repository and optionally deletes the associated tag.

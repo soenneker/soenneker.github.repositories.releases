@@ -23,7 +23,8 @@ public sealed class GitHubRepositoriesReleasesUtil : IGitHubRepositoriesReleases
     private readonly IGitHubRepositoriesTagsUtil _tagsUtil;
     private readonly ILogger<GitHubRepositoriesReleasesUtil> _logger;
 
-    public GitHubRepositoriesReleasesUtil(ILogger<GitHubRepositoriesReleasesUtil> logger, IGitHubOpenApiClientUtil gitHubOpenApiClientUtil, IGitHubRepositoriesTagsUtil tagsUtil)
+    public GitHubRepositoriesReleasesUtil(ILogger<GitHubRepositoriesReleasesUtil> logger, IGitHubOpenApiClientUtil gitHubOpenApiClientUtil,
+        IGitHubRepositoriesTagsUtil tagsUtil)
     {
         _logger = logger;
         _gitHubOpenApiClientUtil = gitHubOpenApiClientUtil;
@@ -61,7 +62,7 @@ public sealed class GitHubRepositoriesReleasesUtil : IGitHubRepositoriesReleases
             Release? release = await client.Repos[owner][repo].Releases.PostAsync(releaseRequest, cancellationToken: cancellationToken).NoSync();
             _logger.LogInformation("Release '{ReleaseName}' created successfully.", release.Name);
 
-            await UploadAsset(release, filePath, cancellationToken).NoSync();
+            await UploadAsset(owner, repo, release.Id.Value, filePath, cancellationToken).NoSync();
             _logger.LogInformation("Executable '{FileName}' uploaded successfully.", Path.GetFileName(filePath));
         }
         catch (Exception ex)
@@ -71,14 +72,12 @@ public sealed class GitHubRepositoriesReleasesUtil : IGitHubRepositoriesReleases
         }
     }
 
-    public async ValueTask<ReleaseAsset?> UploadAsset(Release release, string filePath, CancellationToken cancellationToken = default)
+    public async ValueTask<ReleaseAsset?> UploadAsset(string owner, string repo, int releaseId, string filePath, CancellationToken cancellationToken = default)
     {
         GitHubOpenApiClient client = await _gitHubOpenApiClientUtil.Get(cancellationToken).NoSync();
 
         await using FileStream fileStream = File.OpenRead(filePath);
-        ReleaseAsset? asset = await client.Repos[release.Author.Login][release.Name].Releases[release.Id.Value].Assets.PostAsync(fileStream, cancellationToken: cancellationToken).NoSync();
-
-        return asset;
+        return await client.Repos[owner][repo].Releases[releaseId].Assets.PostAsync(fileStream, cancellationToken: cancellationToken).NoSync();
     }
 
     public async ValueTask Delete(string owner, string repo, string tagName, bool deleteTag = true, CancellationToken cancellationToken = default)

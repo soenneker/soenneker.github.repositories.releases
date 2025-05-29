@@ -1,7 +1,11 @@
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
+using Soenneker.Extensions.Configuration;
+using Soenneker.Extensions.String;
 using Soenneker.Extensions.Task;
 using Soenneker.Extensions.ValueTask;
 using Soenneker.GitHub.ClientUtil.Abstract;
+using Soenneker.GitHub.OpenApiClient;
 using Soenneker.GitHub.OpenApiClient.Models;
 using Soenneker.GitHub.OpenApiClient.Repos.Item.Item.Releases;
 using Soenneker.GitHub.Repositories.Releases.Abstract;
@@ -10,10 +14,10 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Net.Http;
+using System.Net.Http.Headers;
 using System.Threading;
 using System.Threading.Tasks;
-using Soenneker.GitHub.OpenApiClient;
-using Soenneker.Extensions.String;
 
 namespace Soenneker.GitHub.Repositories.Releases;
 
@@ -22,14 +26,16 @@ public sealed class GitHubRepositoriesReleasesUtil : IGitHubRepositoriesReleases
 {
     private readonly IGitHubOpenApiClientUtil _gitHubOpenApiClientUtil;
     private readonly IGitHubRepositoriesTagsUtil _tagsUtil;
+    private readonly IConfiguration _configuration;
     private readonly ILogger<GitHubRepositoriesReleasesUtil> _logger;
 
     public GitHubRepositoriesReleasesUtil(ILogger<GitHubRepositoriesReleasesUtil> logger, IGitHubOpenApiClientUtil gitHubOpenApiClientUtil,
-        IGitHubRepositoriesTagsUtil tagsUtil)
+        IGitHubRepositoriesTagsUtil tagsUtil, IConfiguration configuration)
     {
         _logger = logger;
         _gitHubOpenApiClientUtil = gitHubOpenApiClientUtil;
         _tagsUtil = tagsUtil;
+        _configuration = configuration;
     }
 
     public async ValueTask Create(string owner, string repo, string tagName, string releaseName, string releaseBody, string filePath, bool isDraft = false,
@@ -73,27 +79,55 @@ public sealed class GitHubRepositoriesReleasesUtil : IGitHubRepositoriesReleases
         }
     }
 
-    public async ValueTask<ReleaseAsset?> UploadAsset(string owner, string repo, int releaseId, string filePath, CancellationToken cancellationToken = default)
+    // Can't use Kiota here because of the base address overloading..
+    public async ValueTask UploadAsset(string owner, string repo, int releaseId, string filePath, CancellationToken cancellationToken = default)
     {
-        GitHubOpenApiClient client = await _gitHubOpenApiClientUtil.Get(cancellationToken).NoSync();
-
-        if (owner.IsNullOrWhiteSpace())
-            throw new ArgumentException("Owner cannot be null or empty.", nameof(owner));
-
-        if (repo.IsNullOrWhiteSpace())
-            throw new ArgumentException("Repo cannot be null or empty.", nameof(repo));
-
-        if (releaseId <= 0)
-            throw new ArgumentOutOfRangeException(nameof(releaseId), "Release ID must be positive.");
-
-        if (filePath.IsNullOrWhiteSpace())
-            throw new ArgumentException("File path cannot be null or empty.", nameof(filePath));
+        var uploadUrl = $"https://uploads.github.com/repos/{owner}/{repo}/releases/{releaseId}/assets?name={Uri.EscapeDataString(Path.GetFileName(filePath))}";
 
         if (!File.Exists(filePath))
+        {
+            _logger.LogError("UploadAsset: File not found at path '{FilePath}'", filePath);
             throw new FileNotFoundException("Upload file not found.", filePath);
+        }
+
+        _logger.LogInformation("UploadAsset: Starting upload for file '{FileName}' to release {ReleaseId} in {Owner}/{Repo}", Path.GetFileName(filePath), releaseId, owner, repo);
 
         await using FileStream fileStream = File.OpenRead(filePath);
-        return await client.Repos[owner][repo].Releases[releaseId].Assets.PostAsync(fileStream, cancellationToken: cancellationToken).NoSync();
+        using var content = new StreamContent(fileStream);
+        content.Headers.ContentType = new MediaTypeHeaderValue("application/octet-stream");
+
+        using var request = new HttpRequestMessage(HttpMethod.Post, uploadUrl);
+        request.Content = content;
+
+        var token = _configuration.GetValueStrict<string>("GH:TOKEN");
+        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+        request.Headers.UserAgent.ParseAdd(Guid.NewGuid().ToString());
+
+        using var httpClient = new HttpClient();
+
+        try
+        {
+            HttpResponseMessage response = await httpClient.SendAsync(request, cancellationToken);
+
+            if (!response.IsSuccessStatusCode)
+            {
+                string responseBody = await response.Content.ReadAsStringAsync(cancellationToken);
+                _logger.LogError("UploadAsset: Upload failed with status {StatusCode} - {ReasonPhrase}. Response body: {Body}", response.StatusCode, response.ReasonPhrase, responseBody);
+                response.EnsureSuccessStatusCode(); // Still throw for stack trace
+            }
+
+            _logger.LogInformation("UploadAsset: Upload successful for '{FileName}'", Path.GetFileName(filePath));
+        }
+        catch (HttpRequestException ex)
+        {
+            _logger.LogError(ex, "UploadAsset: HttpRequestException while uploading to GitHub. URL: {UploadUrl}", uploadUrl);
+            throw;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "UploadAsset: Unexpected error during upload.");
+            throw;
+        }
     }
 
     public async ValueTask Delete(string owner, string repo, string tagName, bool deleteTag = true, CancellationToken cancellationToken = default)

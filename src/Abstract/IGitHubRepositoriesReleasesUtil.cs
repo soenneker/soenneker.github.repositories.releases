@@ -33,7 +33,7 @@ public interface IGitHubRepositoriesReleasesUtil
     /// <param name="owner"></param>
     /// <param name="repo"></param>
     /// <returns>The uploaded <see cref="ReleaseAsset"/> if successful; otherwise, <c>null</c>.</returns>
-    ValueTask UploadAsset(string owner, string repo, int releaseId, string filePath, CancellationToken cancellationToken = default);
+    ValueTask UploadAsset(string owner, string repo, long releaseId, string filePath, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Deletes a release from a repository and optionally deletes the associated tag.

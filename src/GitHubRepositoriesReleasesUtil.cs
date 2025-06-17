@@ -80,7 +80,7 @@ public sealed class GitHubRepositoriesReleasesUtil : IGitHubRepositoriesReleases
     }
 
     // Can't use Kiota here because of the base address overloading..
-    public async ValueTask UploadAsset(string owner, string repo, int releaseId, string filePath, CancellationToken cancellationToken = default)
+    public async ValueTask UploadAsset(string owner, string repo, long releaseId, string filePath, CancellationToken cancellationToken = default)
     {
         var uploadUrl = $"https://uploads.github.com/repos/{owner}/{repo}/releases/{releaseId}/assets?name={Uri.EscapeDataString(Path.GetFileName(filePath))}";
 

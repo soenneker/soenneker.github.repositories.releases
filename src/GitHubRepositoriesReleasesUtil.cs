@@ -1,7 +1,6 @@
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
 using Soenneker.Extensions.Configuration;
-using Soenneker.Extensions.String;
 using Soenneker.Extensions.Task;
 using Soenneker.Extensions.ValueTask;
 using Soenneker.GitHub.ClientUtil.Abstract;
@@ -158,6 +157,71 @@ public sealed class GitHubRepositoriesReleasesUtil : IGitHubRepositoriesReleases
         catch (Exception ex)
         {
             _logger.LogError(ex, "An error occurred while deleting the release: {Message}", ex.Message);
+            throw;
+        }
+    }
+
+    public async ValueTask<List<string>> DownloadAllLatestReleaseAssets(string owner, string repo, string downloadDirectory, CancellationToken cancellationToken = default)
+    {
+        var downloadedPaths = new List<string>();
+
+        try
+        {
+            GitHubOpenApiClient client = await _gitHubOpenApiClientUtil.Get(cancellationToken).NoSync();
+
+            List<Release>? releases = await client.Repos[owner][repo].Releases.GetAsync(cancellationToken: cancellationToken).NoSync();
+
+            if (releases == null || releases.Count == 0)
+            {
+                _logger.LogWarning("No releases found for repository {Owner}/{Repo}", owner, repo);
+                return downloadedPaths;
+            }
+
+            Release latestRelease = releases
+                .Where(r => !r.Draft.GetValueOrDefault(false))
+                .OrderByDescending(r => r.CreatedAt)
+                .First();
+
+            if (latestRelease.Assets == null || latestRelease.Assets.Count == 0)
+            {
+                _logger.LogWarning("Latest release {Tag} contains no assets to download.", latestRelease.TagName);
+                return downloadedPaths;
+            }
+
+            using var httpClient = new HttpClient();
+            var token = _configuration.GetValueStrict<string>("GH:TOKEN");
+            httpClient.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
+            httpClient.DefaultRequestHeaders.UserAgent.ParseAdd(Guid.NewGuid().ToString());
+
+            foreach (ReleaseAsset asset in latestRelease.Assets)
+            {
+                string downloadUrl = asset.BrowserDownloadUrl;
+                string fileName = asset.Name;
+                string filePath = Path.Combine(downloadDirectory, fileName);
+
+                _logger.LogInformation("Downloading asset {FileName} from {Url}", fileName, downloadUrl);
+
+                using HttpResponseMessage response = await httpClient.GetAsync(downloadUrl, cancellationToken);
+
+                if (!response.IsSuccessStatusCode)
+                {
+                    string body = await response.Content.ReadAsStringAsync(cancellationToken);
+                    _logger.LogError("Failed to download asset {FileName}. Status: {StatusCode}, Reason: {ReasonPhrase}, Body: {Body}", fileName, response.StatusCode, response.ReasonPhrase, body);
+                    continue;
+                }
+
+                await using var fs = new FileStream(filePath, FileMode.Create, FileAccess.Write, FileShare.None);
+                await response.Content.CopyToAsync(fs, cancellationToken);
+
+                _logger.LogInformation("Successfully downloaded asset to {FilePath}", filePath);
+                downloadedPaths.Add(filePath);
+            }
+
+            return downloadedPaths;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error occurred while downloading latest release assets.");
             throw;
         }
     }

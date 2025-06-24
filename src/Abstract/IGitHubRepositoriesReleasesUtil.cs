@@ -63,4 +63,6 @@ public interface IGitHubRepositoriesReleasesUtil
     /// <param name="cancellationToken">A cancellation token.</param>
     /// <returns>A read-only list of <see cref="Release"/> objects.</returns>
     ValueTask<IReadOnlyList<Release>> GetAll(string owner, string repo, CancellationToken cancellationToken = default);
+
+    ValueTask<List<string>> DownloadAllLatestReleaseAssets(string owner, string repo, string downloadDirectory, CancellationToken cancellationToken = default);
 }

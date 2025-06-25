@@ -78,10 +78,10 @@ public sealed class GitHubRepositoriesReleasesUtil : IGitHubRepositoriesReleases
         }
     }
 
-    // Can't use Kiota here because of the base address overloading..
     public async ValueTask UploadAsset(string owner, string repo, long releaseId, string filePath, CancellationToken cancellationToken = default)
     {
-        var uploadUrl = $"https://uploads.github.com/repos/{owner}/{repo}/releases/{releaseId}/assets?name={Uri.EscapeDataString(Path.GetFileName(filePath))}";
+        string uploadUrl =
+            $"https://uploads.github.com/repos/{owner}/{repo}/releases/{releaseId}/assets?name={Uri.EscapeDataString(Path.GetFileName(filePath))}";
 
         if (!File.Exists(filePath))
         {
@@ -89,44 +89,34 @@ public sealed class GitHubRepositoriesReleasesUtil : IGitHubRepositoriesReleases
             throw new FileNotFoundException("Upload file not found.", filePath);
         }
 
-        _logger.LogInformation("UploadAsset: Starting upload for file '{FileName}' to release {ReleaseId} in {Owner}/{Repo}", Path.GetFileName(filePath), releaseId, owner, repo);
+        _logger.LogInformation("UploadAsset: Starting upload for file '{FileName}'", Path.GetFileName(filePath));
 
-        await using FileStream fileStream = File.OpenRead(filePath);
+        await using var fileStream = File.OpenRead(filePath);
         using var content = new StreamContent(fileStream);
         content.Headers.ContentType = new MediaTypeHeaderValue("application/octet-stream");
 
-        using var request = new HttpRequestMessage(HttpMethod.Post, uploadUrl);
-        request.Content = content;
+        using var request = new HttpRequestMessage(HttpMethod.Post, uploadUrl)
+        {
+            Content = content
+        };
 
-        var token = _configuration.GetValueStrict<string>("GH:TOKEN");
+        string token = _configuration.GetValueStrict<string>("GH:TOKEN");
         request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
         request.Headers.UserAgent.ParseAdd(Guid.NewGuid().ToString());
 
         using var httpClient = new HttpClient();
 
-        try
-        {
-            HttpResponseMessage response = await httpClient.SendAsync(request, cancellationToken);
+        HttpResponseMessage response = await httpClient.SendAsync(request, cancellationToken);
 
-            if (!response.IsSuccessStatusCode)
-            {
-                string responseBody = await response.Content.ReadAsStringAsync(cancellationToken);
-                _logger.LogError("UploadAsset: Upload failed with status {StatusCode} - {ReasonPhrase}. Response body: {Body}", response.StatusCode, response.ReasonPhrase, responseBody);
-                response.EnsureSuccessStatusCode(); // Still throw for stack trace
-            }
+        if (!response.IsSuccessStatusCode)
+        {
+            string responseBody = await response.Content.ReadAsStringAsync(cancellationToken);
+            _logger.LogError("UploadAsset: Upload failed. Status: {StatusCode}, Reason: {ReasonPhrase}, Body: {Body}", response.StatusCode,
+                response.ReasonPhrase, responseBody);
+            response.EnsureSuccessStatusCode();
+        }
 
-            _logger.LogInformation("UploadAsset: Upload successful for '{FileName}'", Path.GetFileName(filePath));
-        }
-        catch (HttpRequestException ex)
-        {
-            _logger.LogError(ex, "UploadAsset: HttpRequestException while uploading to GitHub. URL: {UploadUrl}", uploadUrl);
-            throw;
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "UploadAsset: Unexpected error during upload.");
-            throw;
-        }
+        _logger.LogInformation("UploadAsset: Upload successful for '{FileName}'", Path.GetFileName(filePath));
     }
 
     public async ValueTask Delete(string owner, string repo, string tagName, bool deleteTag = true, CancellationToken cancellationToken = default)
@@ -134,130 +124,145 @@ public sealed class GitHubRepositoriesReleasesUtil : IGitHubRepositoriesReleases
         try
         {
             GitHubOpenApiClient client = await _gitHubOpenApiClientUtil.Get(cancellationToken).NoSync();
-
             Release? release = await Get(owner, repo, tagName, cancellationToken).NoSync();
 
             if (release == null)
                 return;
 
             await client.Repos[owner][repo].Releases[release.Id.Value].DeleteAsync(cancellationToken: cancellationToken).NoSync();
-            _logger.LogInformation("Release with tag '{TagName}' deleted successfully.", tagName);
+            _logger.LogInformation("Release with tag '{TagName}' deleted.", tagName);
 
             if (deleteTag)
             {
                 bool tagExists = await _tagsUtil.DoesTagExist(owner, repo, tagName, cancellationToken).NoSync();
-
                 if (tagExists)
                 {
                     await _tagsUtil.Delete(owner, repo, tagName, cancellationToken).NoSync();
-                    _logger.LogInformation("Tag '{TagName}' deleted successfully.", tagName);
+                    _logger.LogInformation("Tag '{TagName}' deleted.", tagName);
                 }
             }
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "An error occurred while deleting the release: {Message}", ex.Message);
+            _logger.LogError(ex, "Error while deleting release: {Message}", ex.Message);
             throw;
         }
     }
 
-    public async ValueTask<List<string>> DownloadAllLatestReleaseAssets(string owner, string repo, string downloadDirectory, CancellationToken cancellationToken = default)
+    public async ValueTask<List<string>> DownloadAllLatestReleaseAssets(string owner, string repo, string downloadDirectory,
+        CancellationToken cancellationToken = default)
     {
         var downloadedPaths = new List<string>();
 
         try
         {
-            GitHubOpenApiClient client = await _gitHubOpenApiClientUtil.Get(cancellationToken).NoSync();
-
-            List<Release>? releases = await client.Repos[owner][repo].Releases.GetAsync(cancellationToken: cancellationToken).NoSync();
-
-            if (releases == null || releases.Count == 0)
+            var release = await GetLatestNonDraftRelease(owner, repo, cancellationToken);
+            if (release?.Assets == null || release.Assets.Count == 0)
             {
-                _logger.LogWarning("No releases found for repository {Owner}/{Repo}", owner, repo);
+                _logger.LogWarning("Latest release has no assets.");
                 return downloadedPaths;
             }
 
-            Release latestRelease = releases
-                .Where(r => !r.Draft.GetValueOrDefault(false))
-                .OrderByDescending(r => r.CreatedAt)
-                .First();
-
-            if (latestRelease.Assets == null || latestRelease.Assets.Count == 0)
+            foreach (var asset in release.Assets)
             {
-                _logger.LogWarning("Latest release {Tag} contains no assets to download.", latestRelease.TagName);
-                return downloadedPaths;
-            }
-
-            using var httpClient = new HttpClient();
-            var token = _configuration.GetValueStrict<string>("GH:TOKEN");
-            httpClient.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
-            httpClient.DefaultRequestHeaders.UserAgent.ParseAdd(Guid.NewGuid().ToString());
-
-            foreach (ReleaseAsset asset in latestRelease.Assets)
-            {
-                string downloadUrl = asset.BrowserDownloadUrl;
-                string fileName = asset.Name;
-                string filePath = Path.Combine(downloadDirectory, fileName);
-
-                _logger.LogInformation("Downloading asset {FileName} from {Url}", fileName, downloadUrl);
-
-                using HttpResponseMessage response = await httpClient.GetAsync(downloadUrl, cancellationToken);
-
-                if (!response.IsSuccessStatusCode)
-                {
-                    string body = await response.Content.ReadAsStringAsync(cancellationToken);
-                    _logger.LogError("Failed to download asset {FileName}. Status: {StatusCode}, Reason: {ReasonPhrase}, Body: {Body}", fileName, response.StatusCode, response.ReasonPhrase, body);
-                    continue;
-                }
-
-                await using var fs = new FileStream(filePath, FileMode.Create, FileAccess.Write, FileShare.None);
-                await response.Content.CopyToAsync(fs, cancellationToken);
-
-                _logger.LogInformation("Successfully downloaded asset to {FilePath}", filePath);
-                downloadedPaths.Add(filePath);
+                string? path = await DownloadAsset(asset, downloadDirectory, cancellationToken);
+                if (path != null)
+                    downloadedPaths.Add(path);
             }
 
             return downloadedPaths;
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Error occurred while downloading latest release assets.");
+            _logger.LogError(ex, "Error downloading all release assets.");
+            throw;
+        }
+    }
+
+    public async ValueTask<string?> DownloadReleaseAssetByNamePattern(string owner, string repo, string downloadDirectory, IEnumerable<string> nameContains,
+        CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            var release = await GetLatestNonDraftRelease(owner, repo, cancellationToken);
+            if (release?.Assets == null)
+            {
+                _logger.LogWarning("No assets found.");
+                return null;
+            }
+
+            var asset = release.Assets.FirstOrDefault(a => nameContains.All(part => a.Name.Contains(part, StringComparison.OrdinalIgnoreCase)));
+
+            if (asset == null)
+            {
+                _logger.LogWarning("No matching asset found in release {Tag}", release.TagName);
+                return null;
+            }
+
+            return await DownloadAsset(asset, downloadDirectory, cancellationToken);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error in DownloadReleaseAssetByNamePattern");
             throw;
         }
     }
 
     public async ValueTask<Release?> Get(string owner, string repo, string tagName, CancellationToken cancellationToken = default)
     {
-        IReadOnlyList<Release> releases = await GetAll(owner, repo, cancellationToken).NoSync();
-
-        Release? release = releases.FirstOrDefault(r => r.TagName == tagName);
+        var releases = await GetAll(owner, repo, cancellationToken).NoSync();
+        var release = releases.FirstOrDefault(r => r.TagName == tagName);
 
         if (release == null)
         {
-            _logger.LogWarning("No release found for tag '{TagName}' in repository '{Repo}'.", tagName, repo);
+            _logger.LogWarning("No release for tag '{TagName}'", tagName);
             return null;
         }
 
-        _logger.LogInformation("Successfully retrieved release '{ReleaseName}' with tag '{TagName}'.", release.Name, tagName);
+        _logger.LogInformation("Found release '{ReleaseName}' with tag '{TagName}'", release.Name, tagName);
         return release;
     }
 
     public async ValueTask<IReadOnlyList<Release>> GetAll(string owner, string repo, CancellationToken cancellationToken = default)
     {
-        try
+        GitHubOpenApiClient client = await _gitHubOpenApiClientUtil.Get(cancellationToken).NoSync();
+        List<Release>? releases = await client.Repos[owner][repo].Releases.GetAsync(cancellationToken: cancellationToken).NoSync();
+
+        _logger.LogInformation("Retrieved {Count} releases for '{Repo}'", releases.Count, repo);
+        return releases;
+    }
+
+    private async ValueTask<Release?> GetLatestNonDraftRelease(string owner, string repo, CancellationToken cancellationToken = default)
+    {
+        var releases = await GetAll(owner, repo, cancellationToken).NoSync();
+
+        return releases.Where(r => !r.Draft.GetValueOrDefault(false)).OrderByDescending(r => r.CreatedAt).FirstOrDefault();
+    }
+
+    private async ValueTask<string?> DownloadAsset(ReleaseAsset asset, string downloadDirectory, CancellationToken cancellationToken = default)
+    {
+        string filePath = Path.Combine(downloadDirectory, asset.Name);
+        string downloadUrl = asset.BrowserDownloadUrl;
+
+        using var httpClient = new HttpClient();
+        string token = _configuration.GetValueStrict<string>("GH:TOKEN");
+        httpClient.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
+        httpClient.DefaultRequestHeaders.UserAgent.ParseAdd(Guid.NewGuid().ToString());
+
+        _logger.LogInformation("Downloading asset '{Name}' from {Url}", asset.Name, downloadUrl);
+
+        using var response = await httpClient.GetAsync(downloadUrl, cancellationToken);
+        if (!response.IsSuccessStatusCode)
         {
-            GitHubOpenApiClient client = await _gitHubOpenApiClientUtil.Get(cancellationToken).NoSync();
-
-            List<Release>? releases = await client.Repos[owner][repo].Releases.GetAsync(cancellationToken: cancellationToken).NoSync();
-
-            _logger.LogInformation("Successfully retrieved {Count} releases for repository '{Repo}'.", releases.Count, repo);
-
-            return releases;
+            string body = await response.Content.ReadAsStringAsync(cancellationToken);
+            _logger.LogError("Download failed for {Name}. Status: {StatusCode}, Body: {Body}", asset.Name, response.StatusCode, body);
+            return null;
         }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "An error occurred while retrieving releases for repository '{Repo}': {Message}", repo, ex.Message);
-            throw;
-        }
+
+        await using var fs = new FileStream(filePath, FileMode.Create, FileAccess.Write, FileShare.None);
+        await response.Content.CopyToAsync(fs, cancellationToken);
+
+        _logger.LogInformation("Saved asset to {Path}", filePath);
+        return filePath;
     }
 }

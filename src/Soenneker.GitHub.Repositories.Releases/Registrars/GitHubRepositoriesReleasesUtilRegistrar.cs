@@ -2,6 +2,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Soenneker.GitHub.Repositories.Releases.Abstract;
 using Soenneker.GitHub.Repositories.Tags.Registrars;
+using Soenneker.Utils.File.Registrars;
 
 namespace Soenneker.GitHub.Repositories.Releases.Registrars;
 
@@ -15,7 +16,9 @@ public static class GitHubRepositoriesReleasesUtilRegistrar
     /// </summary>
     public static IServiceCollection AddGitHubRepositoriesReleasesUtilAsSingleton(this IServiceCollection services)
     {
-        services.AddGitHubRepositoriesTagsUtilAsSingleton().TryAddSingleton<IGitHubRepositoriesReleasesUtil, GitHubRepositoriesReleasesUtil>();
+        services.AddGitHubRepositoriesTagsUtilAsSingleton()
+                .AddFileUtilAsSingleton()
+                .TryAddSingleton<IGitHubRepositoriesReleasesUtil, GitHubRepositoriesReleasesUtil>();
 
         return services;
     }
@@ -25,7 +28,9 @@ public static class GitHubRepositoriesReleasesUtilRegistrar
     /// </summary>
     public static IServiceCollection AddGitHubRepositoriesReleasesUtilAsScoped(this IServiceCollection services)
     {
-        services.AddGitHubRepositoriesTagsUtilAsScoped().TryAddScoped<IGitHubRepositoriesReleasesUtil, GitHubRepositoriesReleasesUtil>();
+        services.AddGitHubRepositoriesTagsUtilAsScoped()
+                .AddFileUtilAsScoped()
+                .TryAddScoped<IGitHubRepositoriesReleasesUtil, GitHubRepositoriesReleasesUtil>();
 
         return services;
     }

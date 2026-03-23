@@ -46,6 +46,15 @@ public interface IGitHubRepositoriesReleasesUtil
     ValueTask Delete(string owner, string repo, string tagName, bool deleteTag = true, CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// Deletes all releases in the specified repository and optionally their associated tags.
+    /// </summary>
+    /// <param name="owner">The owner of the GitHub repository.</param>
+    /// <param name="repo">The name of the repository.</param>
+    /// <param name="deleteTags">If true, release tags will also be deleted.</param>
+    /// <param name="cancellationToken">A token to cancel the operation.</param>
+    ValueTask DeleteAllForRepository(string owner, string repo, bool deleteTags = true, CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// Downloads all assets from the latest non-draft release of the specified repository.
     /// </summary>
     /// <param name="owner">The owner of the GitHub repository.</param>

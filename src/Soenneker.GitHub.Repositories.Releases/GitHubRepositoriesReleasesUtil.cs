@@ -49,11 +49,13 @@ public sealed class GitHubRepositoriesReleasesUtil : IGitHubRepositoriesReleases
     {
         try
         {
-            bool tagExists = await _tagsUtil.DoesTagExist(owner, repo, tagName, cancellationToken).NoSync();
+            bool tagExists = await _tagsUtil.DoesTagExist(owner, repo, tagName, cancellationToken)
+                                            .NoSync();
 
             if (!tagExists)
             {
-                await _tagsUtil.Create(owner, repo, tagName, cancellationToken).NoSync();
+                await _tagsUtil.Create(owner, repo, tagName, cancellationToken)
+                               .NoSync();
                 _logger.LogInformation("Tag '{TagName}' created successfully.", tagName);
             }
             else
@@ -61,9 +63,10 @@ public sealed class GitHubRepositoriesReleasesUtil : IGitHubRepositoriesReleases
                 _logger.LogInformation("Tag '{TagName}' already exists. Skipping tag creation.", tagName);
             }
 
-            GitHubOpenApiClient client = await _gitHubOpenApiClientUtil.Get(cancellationToken).NoSync();
+            GitHubOpenApiClient client = await _gitHubOpenApiClientUtil.Get(cancellationToken)
+                                                                       .NoSync();
 
-            var releaseRequest = new ReleasesPostRequestBody
+            var releaseRequest = new ReposCreateRelease
             {
                 TagName = tagName,
                 Name = releaseName,
@@ -72,10 +75,13 @@ public sealed class GitHubRepositoriesReleasesUtil : IGitHubRepositoriesReleases
                 Prerelease = isPrerelease
             };
 
-            Release? release = await client.Repos[owner][repo].Releases.PostAsync(releaseRequest, cancellationToken: cancellationToken).NoSync();
+            Release? release = await client.Repos[owner][repo]
+                                           .Releases.PostAsync(releaseRequest, cancellationToken: cancellationToken)
+                                           .NoSync();
             _logger.LogInformation("Release '{ReleaseName}' created successfully.", release.Name);
 
-            await UploadAsset(owner, repo, release.Id.Value, filePath, cancellationToken).NoSync();
+            await UploadAsset(owner, repo, release.Id.Value, filePath, cancellationToken)
+                .NoSync();
             _logger.LogInformation("Executable '{FileName}' uploaded successfully.", Path.GetFileName(filePath));
         }
         catch (Exception ex)
@@ -87,8 +93,7 @@ public sealed class GitHubRepositoriesReleasesUtil : IGitHubRepositoriesReleases
 
     public async ValueTask UploadAsset(string owner, string repo, long releaseId, string filePath, CancellationToken cancellationToken = default)
     {
-        var uploadUrl =
-            $"https://uploads.github.com/repos/{owner}/{repo}/releases/{releaseId}/assets?name={Uri.EscapeDataString(Path.GetFileName(filePath))}";
+        var uploadUrl = $"https://uploads.github.com/repos/{owner}/{repo}/releases/{releaseId}/assets?name={Uri.EscapeDataString(Path.GetFileName(filePath))}";
 
         if (!await _fileUtil.Exists(filePath, cancellationToken))
         {
@@ -107,7 +112,8 @@ public sealed class GitHubRepositoriesReleasesUtil : IGitHubRepositoriesReleases
 
         var token = _configuration.GetValueStrict<string>("GH:TOKEN");
         request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
-        request.Headers.UserAgent.ParseAdd(Guid.NewGuid().ToString());
+        request.Headers.UserAgent.ParseAdd(Guid.NewGuid()
+                                               .ToString());
 
         HttpClient httpClient = await _gitHubHttpClient.Get(cancellationToken)
                                                        .NoSync();
@@ -129,21 +135,28 @@ public sealed class GitHubRepositoriesReleasesUtil : IGitHubRepositoriesReleases
     {
         try
         {
-            GitHubOpenApiClient client = await _gitHubOpenApiClientUtil.Get(cancellationToken).NoSync();
-            Release? release = await Get(owner, repo, tagName, cancellationToken).NoSync();
+            GitHubOpenApiClient client = await _gitHubOpenApiClientUtil.Get(cancellationToken)
+                                                                       .NoSync();
+            Release? release = await Get(owner, repo, tagName, cancellationToken)
+                .NoSync();
 
             if (release == null)
                 return;
 
-            await client.Repos[owner][repo].Releases[release.Id.Value].DeleteAsync(cancellationToken: cancellationToken).NoSync();
+            await client.Repos[owner][repo]
+                        .Releases[release.Id.Value]
+                        .DeleteAsync(cancellationToken: cancellationToken)
+                        .NoSync();
             _logger.LogInformation("Release with tag '{TagName}' deleted.", tagName);
 
             if (deleteTag)
             {
-                bool tagExists = await _tagsUtil.DoesTagExist(owner, repo, tagName, cancellationToken).NoSync();
+                bool tagExists = await _tagsUtil.DoesTagExist(owner, repo, tagName, cancellationToken)
+                                                .NoSync();
                 if (tagExists)
                 {
-                    await _tagsUtil.Delete(owner, repo, tagName, cancellationToken).NoSync();
+                    await _tagsUtil.Delete(owner, repo, tagName, cancellationToken)
+                                   .NoSync();
                     _logger.LogInformation("Tag '{TagName}' deleted.", tagName);
                 }
             }
@@ -159,14 +172,16 @@ public sealed class GitHubRepositoriesReleasesUtil : IGitHubRepositoriesReleases
     {
         try
         {
-            IReadOnlyList<Release> releases = await GetAll(owner, repo, cancellationToken).NoSync();
+            IReadOnlyList<Release> releases = await GetAll(owner, repo, cancellationToken)
+                .NoSync();
 
             foreach (Release release in releases)
             {
                 if (release.TagName.IsNullOrWhiteSpace())
                     continue;
 
-                await Delete(owner, repo, release.TagName, deleteTags, cancellationToken).NoSync();
+                await Delete(owner, repo, release.TagName, deleteTags, cancellationToken)
+                    .NoSync();
             }
 
             _logger.LogInformation("Deleted {Count} releases for repository '{Repo}'", releases.Count, repo);
@@ -239,7 +254,8 @@ public sealed class GitHubRepositoriesReleasesUtil : IGitHubRepositoriesReleases
 
     public async ValueTask<Release?> Get(string owner, string repo, string tagName, CancellationToken cancellationToken = default)
     {
-        IReadOnlyList<Release> releases = await GetAll(owner, repo, cancellationToken).NoSync();
+        IReadOnlyList<Release> releases = await GetAll(owner, repo, cancellationToken)
+            .NoSync();
         Release? release = releases.FirstOrDefault(r => r.TagName == tagName);
 
         if (release == null)
@@ -254,8 +270,11 @@ public sealed class GitHubRepositoriesReleasesUtil : IGitHubRepositoriesReleases
 
     public async ValueTask<IReadOnlyList<Release>> GetAll(string owner, string repo, CancellationToken cancellationToken = default)
     {
-        GitHubOpenApiClient client = await _gitHubOpenApiClientUtil.Get(cancellationToken).NoSync();
-        List<Release>? releases = await client.Repos[owner][repo].Releases.GetAsync(cancellationToken: cancellationToken).NoSync();
+        GitHubOpenApiClient client = await _gitHubOpenApiClientUtil.Get(cancellationToken)
+                                                                   .NoSync();
+        List<Release>? releases = await client.Repos[owner][repo]
+                                              .Releases.GetAsync(cancellationToken: cancellationToken)
+                                              .NoSync();
 
         _logger.LogInformation("Retrieved {Count} releases for '{Repo}'", releases.Count, repo);
         return releases;
@@ -263,9 +282,12 @@ public sealed class GitHubRepositoriesReleasesUtil : IGitHubRepositoriesReleases
 
     private async ValueTask<Release?> GetLatestNonDraftRelease(string owner, string repo, CancellationToken cancellationToken = default)
     {
-        IReadOnlyList<Release> releases = await GetAll(owner, repo, cancellationToken).NoSync();
+        IReadOnlyList<Release> releases = await GetAll(owner, repo, cancellationToken)
+            .NoSync();
 
-        return releases.Where(r => !r.Draft.GetValueOrDefault(false)).OrderByDescending(r => r.CreatedAt).FirstOrDefault();
+        return releases.Where(r => !r.Draft.GetValueOrDefault(false))
+                       .OrderByDescending(r => r.CreatedAt)
+                       .FirstOrDefault();
     }
 
     private async ValueTask<string?> DownloadAsset(ReleaseAsset asset, string downloadDirectory, CancellationToken cancellationToken = default)
@@ -278,7 +300,8 @@ public sealed class GitHubRepositoriesReleasesUtil : IGitHubRepositoriesReleases
 
         var token = _configuration.GetValueStrict<string>("GH:TOKEN");
         httpClient.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
-        httpClient.DefaultRequestHeaders.UserAgent.ParseAdd(Guid.NewGuid().ToString());
+        httpClient.DefaultRequestHeaders.UserAgent.ParseAdd(Guid.NewGuid()
+                                                                .ToString());
 
         _logger.LogInformation("Downloading asset '{Name}' from {Url}", asset.Name, downloadUrl);
 

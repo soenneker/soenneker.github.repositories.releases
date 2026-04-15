@@ -6,7 +6,6 @@ using Soenneker.Extensions.ValueTask;
 using Soenneker.GitHub.ClientUtil.Abstract;
 using Soenneker.GitHub.OpenApiClient;
 using Soenneker.GitHub.OpenApiClient.Models;
-using Soenneker.GitHub.OpenApiClient.Repos.Item.Item.Releases;
 using Soenneker.GitHub.Repositories.Releases.Abstract;
 using Soenneker.GitHub.Repositories.Tags.Abstract;
 using System;

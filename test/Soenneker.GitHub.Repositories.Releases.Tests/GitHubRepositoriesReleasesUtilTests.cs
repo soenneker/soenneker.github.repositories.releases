@@ -1,14 +1,13 @@
 using Soenneker.GitHub.Repositories.Releases.Abstract;
-using Soenneker.Tests.FixturedUnit;
+using Soenneker.Tests.HostedUnit;
 using System;
 using System.Threading.Tasks;
-using Soenneker.Facts.Local;
-using Xunit;
+using Soenneker.Tests.Attributes.Local;
 
 namespace Soenneker.GitHub.Repositories.Releases.Tests;
 
-[Collection("Collection")]
-public class GitHubRepositoriesReleasesUtilTests : FixturedUnitTest
+[ClassDataSource<Host>(Shared = SharedType.PerTestSession)]
+public class GitHubRepositoriesReleasesUtilTests : HostedUnitTest
 {
     private readonly IGitHubRepositoriesReleasesUtil _util;
 
@@ -16,18 +15,18 @@ public class GitHubRepositoriesReleasesUtilTests : FixturedUnitTest
     private const string _repo = "";
     private const string _filePath = @"";
 
-    public GitHubRepositoriesReleasesUtilTests(Fixture fixture, ITestOutputHelper output) : base(fixture, output)
+    public GitHubRepositoriesReleasesUtilTests(Host host) : base(host)
     {
         _util = Resolve<IGitHubRepositoriesReleasesUtil>(true);
     }
 
-    [Fact]
+    [Test]
     public void Default()
     {
 
     }
 
-    [LocalFact]
+    [LocalOnly]
     public async Task CreateAndUploadAsset_Succeeds()
     {
         var tag = $"v{DateTimeOffset.UtcNow.ToUnixTimeSeconds()}";

@@ -65,7 +65,7 @@ public sealed class GitHubRepositoriesReleasesUtil : IGitHubRepositoriesReleases
             GitHubOpenApiClient client = await _gitHubOpenApiClientUtil.Get(cancellationToken)
                                                                        .NoSync();
 
-            var releaseRequest = new ReposCreateRelease
+            var releaseRequest = new ReposCreateReleaseRequest
             {
                 TagName = tagName,
                 Name = releaseName,
@@ -143,7 +143,7 @@ public sealed class GitHubRepositoriesReleasesUtil : IGitHubRepositoriesReleases
                 return;
 
             await client.Repos[owner][repo]
-                        .Releases[release.Id.Value]
+                        .Releases[release.Id.Value.ToString()]
                         .DeleteAsync(cancellationToken: cancellationToken)
                         .NoSync();
             _logger.LogInformation("Release with tag '{TagName}' deleted.", tagName);

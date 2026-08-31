@@ -6,7 +6,7 @@ using System.Threading.Tasks;
 namespace Soenneker.GitHub.Repositories.Releases.Abstract;
 
 /// <summary>
-/// A utility for managing GitHub releases and their assets using the GitHub REST API via OpenAPI client.
+/// Creates, retrieves, deletes, uploads, and downloads GitHub releases and their assets.
 /// </summary>
 public interface IGitHubRepositoriesReleasesUtil
 {

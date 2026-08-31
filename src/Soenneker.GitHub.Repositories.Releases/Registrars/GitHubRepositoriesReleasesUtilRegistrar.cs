@@ -7,7 +7,7 @@ using Soenneker.Utils.File.Registrars;
 namespace Soenneker.GitHub.Repositories.Releases.Registrars;
 
 /// <summary>
-/// A utility library for GitHub repository release operations
+/// Registers services for managing GitHub releases, tags, and release assets.
 /// </summary>
 public static class GitHubRepositoriesReleasesUtilRegistrar
 {

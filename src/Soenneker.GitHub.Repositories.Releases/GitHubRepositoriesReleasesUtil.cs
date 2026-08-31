@@ -22,7 +22,6 @@ using Soenneker.Extensions.String;
 
 namespace Soenneker.GitHub.Repositories.Releases;
 
-///<inheritdoc cref="IGitHubRepositoriesReleasesUtil"/>
 public sealed class GitHubRepositoriesReleasesUtil : IGitHubRepositoriesReleasesUtil
 {
     private readonly IGitHubOpenApiClientUtil _gitHubOpenApiClientUtil;
@@ -77,6 +76,10 @@ public sealed class GitHubRepositoriesReleasesUtil : IGitHubRepositoriesReleases
             Release? release = await client.Repos[owner][repo]
                                            .Releases.PostAsync(releaseRequest, cancellationToken: cancellationToken)
                                            .NoSync();
+
+            if (release?.Id == null)
+                throw new InvalidOperationException("GitHub did not return the created release or its ID.");
+
             _logger.LogInformation("Release '{ReleaseName}' created successfully.", release.Name);
 
             await UploadAsset(owner, repo, release.Id.Value, filePath, cancellationToken)
@@ -117,7 +120,7 @@ public sealed class GitHubRepositoriesReleasesUtil : IGitHubRepositoriesReleases
         HttpClient httpClient = await _gitHubHttpClient.Get(cancellationToken)
                                                        .NoSync();
 
-        HttpResponseMessage response = await httpClient.SendAsync(request, cancellationToken);
+        using HttpResponseMessage response = await httpClient.SendAsync(request, cancellationToken);
 
         if (!response.IsSuccessStatusCode)
         {
@@ -142,8 +145,11 @@ public sealed class GitHubRepositoriesReleasesUtil : IGitHubRepositoriesReleases
             if (release == null)
                 return;
 
+            if (release.Id is not long releaseId)
+                throw new InvalidOperationException($"GitHub did not return an ID for release '{tagName}'.");
+
             await client.Repos[owner][repo]
-                        .Releases[release.Id.Value.ToString()]
+                        .Releases[releaseId.ToString()]
                         .DeleteAsync(cancellationToken: cancellationToken)
                         .NoSync();
             _logger.LogInformation("Release with tag '{TagName}' deleted.", tagName);
@@ -234,7 +240,8 @@ public sealed class GitHubRepositoriesReleasesUtil : IGitHubRepositoriesReleases
                 return null;
             }
 
-            ReleaseAsset? asset = release.Assets.FirstOrDefault(a => nameContains.All(part => a.Name.Contains(part, StringComparison.OrdinalIgnoreCase)));
+            ReleaseAsset? asset = release.Assets.FirstOrDefault(a =>
+                a.Name != null && nameContains.All(part => a.Name.Contains(part, StringComparison.OrdinalIgnoreCase)));
 
             if (asset == null)
             {
@@ -271,9 +278,30 @@ public sealed class GitHubRepositoriesReleasesUtil : IGitHubRepositoriesReleases
     {
         GitHubOpenApiClient client = await _gitHubOpenApiClientUtil.Get(cancellationToken)
                                                                    .NoSync();
-        List<Release>? releases = await client.Repos[owner][repo]
-                                              .Releases.GetAsync(cancellationToken: cancellationToken)
-                                              .NoSync();
+
+        var releases = new List<Release>();
+        var page = 1;
+        const int perPage = 100;
+
+        while (true)
+        {
+            List<Release>? pageOfReleases = await client.Repos[owner][repo]
+                .Releases.GetAsync(requestConfiguration =>
+                {
+                    requestConfiguration.QueryParameters.Page = page;
+                    requestConfiguration.QueryParameters.PerPage = perPage;
+                }, cancellationToken).NoSync();
+
+            if (pageOfReleases == null || pageOfReleases.Count == 0)
+                break;
+
+            releases.AddRange(pageOfReleases);
+
+            if (pageOfReleases.Count < perPage)
+                break;
+
+            page++;
+        }
 
         _logger.LogInformation("Retrieved {Count} releases for '{Repo}'", releases.Count, repo);
         return releases;
@@ -291,6 +319,9 @@ public sealed class GitHubRepositoriesReleasesUtil : IGitHubRepositoriesReleases
 
     private async ValueTask<string?> DownloadAsset(ReleaseAsset asset, string downloadDirectory, CancellationToken cancellationToken = default)
     {
+        if (asset.Name == null || asset.BrowserDownloadUrl == null)
+            throw new InvalidOperationException("GitHub returned a release asset without a name or download URL.");
+
         string filePath = Path.Combine(downloadDirectory, asset.Name);
         string downloadUrl = asset.BrowserDownloadUrl;
 
@@ -298,13 +329,13 @@ public sealed class GitHubRepositoriesReleasesUtil : IGitHubRepositoriesReleases
                                                        .NoSync();
 
         var token = _configuration.GetValueStrict<string>("GH:TOKEN");
-        httpClient.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
-        httpClient.DefaultRequestHeaders.UserAgent.ParseAdd(Guid.NewGuid()
-                                                                .ToString());
+        using var request = new HttpRequestMessage(HttpMethod.Get, downloadUrl);
+        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+        request.Headers.UserAgent.ParseAdd(Guid.NewGuid().ToString());
 
         _logger.LogInformation("Downloading asset '{Name}' from {Url}", asset.Name, downloadUrl);
 
-        using HttpResponseMessage response = await httpClient.GetAsync(downloadUrl, cancellationToken);
+        using HttpResponseMessage response = await httpClient.SendAsync(request, cancellationToken);
         if (!response.IsSuccessStatusCode)
         {
             string body = await response.Content.ReadAsStringAsync(cancellationToken);

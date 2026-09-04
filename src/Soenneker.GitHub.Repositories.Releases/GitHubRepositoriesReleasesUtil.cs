@@ -22,6 +22,7 @@ using Soenneker.Extensions.String;
 
 namespace Soenneker.GitHub.Repositories.Releases;
 
+/// <inheritdoc cref="IGitHubRepositoriesReleasesUtil" />
 public sealed class GitHubRepositoriesReleasesUtil : IGitHubRepositoriesReleasesUtil
 {
     private readonly IGitHubOpenApiClientUtil _gitHubOpenApiClientUtil;

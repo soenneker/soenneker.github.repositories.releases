@@ -106,7 +106,8 @@ public sealed class GitHubRepositoriesReleasesUtil : IGitHubRepositoriesReleases
 
         _logger.LogInformation("UploadAsset: Starting upload for file '{FileName}'", Path.GetFileName(filePath));
 
-        await using MemoryStream fileStream = await _fileUtil.ReadToMemoryStream(filePath, cancellationToken: cancellationToken);
+        cancellationToken.ThrowIfCancellationRequested();
+        await using FileStream fileStream = _fileUtil.OpenRead(filePath);
         using var content = new StreamContent(fileStream);
         content.Headers.ContentType = new MediaTypeHeaderValue("application/octet-stream");
 

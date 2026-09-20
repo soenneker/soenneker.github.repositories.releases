@@ -119,7 +119,7 @@ public sealed class GitHubRepositoriesReleasesUtil : IGitHubRepositoriesReleases
         request.Headers.UserAgent.ParseAdd(Guid.NewGuid()
                                                .ToString());
 
-        HttpClient httpClient = await _gitHubHttpClient.Get(cancellationToken)
+        HttpClient httpClient = await _gitHubHttpClient.GetForUpload(cancellationToken)
                                                        .NoSync();
 
         using HttpResponseMessage response = await httpClient.SendAsync(request, cancellationToken);

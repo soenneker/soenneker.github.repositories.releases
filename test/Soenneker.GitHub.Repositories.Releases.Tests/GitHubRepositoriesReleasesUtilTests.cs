@@ -27,7 +27,7 @@ public class GitHubRepositoriesReleasesUtilTests : HostedUnitTest
     }
 
     [LocalOnly]
-    public async Task CreateAndUploadAsset_Succeeds()
+    public async ValueTask CreateAndUploadAsset_Succeeds()
     {
         var tag = $"v{DateTimeOffset.UtcNow.ToUnixTimeSeconds()}";
         var name = $"Integration test release {tag}";

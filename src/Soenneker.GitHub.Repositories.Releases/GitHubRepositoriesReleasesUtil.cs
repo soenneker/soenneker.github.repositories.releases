@@ -114,7 +114,7 @@ public sealed class GitHubRepositoriesReleasesUtil : IGitHubRepositoriesReleases
         using var request = new HttpRequestMessage(HttpMethod.Post, uploadUrl);
         request.Content = content;
 
-        var token = _configuration.GetValueStrict<string>("GH:TOKEN");
+        var token = _configuration.GetStringStrict("GH:TOKEN");
         request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
         request.Headers.UserAgent.ParseAdd(Guid.NewGuid()
                                                .ToString());
@@ -330,7 +330,7 @@ public sealed class GitHubRepositoriesReleasesUtil : IGitHubRepositoriesReleases
         HttpClient httpClient = await _gitHubHttpClient.Get(cancellationToken)
                                                        .NoSync();
 
-        var token = _configuration.GetValueStrict<string>("GH:TOKEN");
+        var token = _configuration.GetStringStrict("GH:TOKEN");
         using var request = new HttpRequestMessage(HttpMethod.Get, downloadUrl);
         request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
         request.Headers.UserAgent.ParseAdd(Guid.NewGuid().ToString());

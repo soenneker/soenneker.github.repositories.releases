@@ -151,7 +151,7 @@ public sealed class GitHubRepositoriesReleasesUtil : IGitHubRepositoriesReleases
                 throw new InvalidOperationException($"GitHub did not return an ID for release '{tagName}'.");
 
             await client.Repos[owner][repo]
-                        .Releases[releaseId.ToString()]
+                        .Releases[releaseId]
                         .DeleteAsync(cancellationToken: cancellationToken)
                         .NoSync();
             _logger.LogInformation("Release with tag '{TagName}' deleted.", tagName);

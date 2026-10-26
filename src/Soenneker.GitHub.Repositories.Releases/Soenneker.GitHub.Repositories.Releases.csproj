@@ -46,6 +46,6 @@
 
     <ItemGroup>
         <PackageReference Include="Soenneker.GitHub.Repositories.Tags" Version="4.0.1052" />
-        <PackageReference Include="Soenneker.Utils.File" Version="4.0.2320" />
+        <PackageReference Include="Soenneker.Utils.File" Version="11.0.2321" />
     </ItemGroup>
 </Project>
